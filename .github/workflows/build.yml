@@ -1,0 +1,92 @@
+name: Sync PO and Build
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 每天 UTC 0 点
+
+jobs:
+  sync-build:
+    runs-on: ubuntu-latest
+    steps:
+      # 拉取自己仓库，保存上次同步的 po 文件
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 拉取上游 git 仓库 po 文件
+      - name: Checkout upstream git repo
+        uses: actions/checkout@v4
+        with:
+          repository: git/git
+          path: git-src
+
+      # 同步 po 文件到仓库
+      - name: Sync po files
+        run: |
+          rsync -av --delete git-src/po/ po/
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes in po files."
+            echo "skip_build=true" >> $GITHUB_ENV
+          else
+            git add po
+            git commit -m "Sync po from upstream $(date -u +'%Y-%m-%d')"
+            git push
+            echo "skip_build=false" >> $GITHUB_ENV
+
+      # 安装 gettext，用于 msgfmt
+      - name: Install gettext
+        if: env.skip_build == 'false'
+        run: sudo apt-get update && sudo apt-get install -y gettext
+
+      # 编译 .po → .mo
+      - name: Build .mo files
+        if: env.skip_build == 'false'
+        run: |
+          mkdir -p build
+          for po in po/*.po; do
+            filename=$(basename "$po" .po)
+            msgfmt "$po" -o "build/${filename}.mo"
+          done
+
+      # 设置 release 日期（UTC）
+      - name: Set release date
+        if: env.skip_build == 'false'
+        run: echo "release_date=$(date -u +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      # 获取更新的语言列表
+      - name: Get updated languages
+        if: env.skip_build == 'false'
+        run: |
+          updated_files=$(git diff --name-only HEAD^ HEAD -- po)
+          if [ -z "$updated_files" ]; then
+            echo "updated_langs=None" >> $GITHUB_ENV
+          else
+            langs=$(echo "$updated_files" | sed 's|po/||;s|\.po$||' | tr '\n' ',')
+            langs=${langs%,}
+            echo "updated_langs=$langs" >> $GITHUB_ENV
+
+      # 删除旧 Release，只保留最新一个
+      - name: Delete older releases
+        if: env.skip_build == 'false'
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 1
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 创建 Release 并上传所有 .mo 文件
+      - name: Create GitHub Release
+        if: env.skip_build == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.release_date }}
+          name: "Git L10n Build ${{ env.release_date }}"
+          body: "Updated languages: ${{ env.updated_langs }}"
+          files: build/*.mo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
