@@ -26,13 +26,13 @@ jobs:
       - name: Sync po files
         run: |
           rsync -av --delete git-src/po/ po/
+          git add po
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
+          if git diff --cached --quiet; then
             echo "No changes in po files."
             echo "skip_build=true" >> $GITHUB_ENV
           else
-            git add po
             git commit -m "Sync po from upstream $(date -u +'%Y-%m-%d')"
             git push
             echo "skip_build=false" >> $GITHUB_ENV
