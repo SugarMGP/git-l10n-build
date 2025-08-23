@@ -36,6 +36,7 @@ jobs:
             git commit -m "Sync po from upstream $(date -u +'%Y-%m-%d')"
             git push
             echo "skip_build=false" >> $GITHUB_ENV
+          fi
 
       # 安装 gettext，用于 msgfmt
       - name: Install gettext
