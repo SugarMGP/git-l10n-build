@@ -62,13 +62,20 @@ jobs:
       - name: Get updated languages
         if: env.skip_build == 'false'
         run: |
-          updated_files=$(git diff --name-only HEAD^ HEAD -- po)
+          # 获取上次同步到本次同步的变化文件，如果是首次同步，则所有文件都算更新
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            updated_files=$(git diff --name-only HEAD^ HEAD -- po)
+          else
+            updated_files=$(ls po/*.po 2>/dev/null || true)
+          fi
+
           if [ -z "$updated_files" ]; then
             echo "updated_langs=None" >> $GITHUB_ENV
           else
             langs=$(echo "$updated_files" | sed 's|po/||;s|\.po$||' | tr '\n' ',')
             langs=${langs%,}
             echo "updated_langs=$langs" >> $GITHUB_ENV
+          fi
 
       # 删除旧 Release，只保留最新一个
       - name: Delete older releases
